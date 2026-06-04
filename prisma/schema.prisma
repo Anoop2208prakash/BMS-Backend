@@ -1,0 +1,108 @@
+// backend/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// --- ENUMS for Strict Typings ---
+
+enum Role {
+  USER
+  ADMIN
+  STAFF
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// --- MODELS ---
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  password  String   // Hashed via bcrypt
+  firstName String
+  lastName  String
+  role      Role     @default(USER)
+  phone     String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts  Account[]
+  kyc       KYC?
+}
+
+model KYC {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String    @unique @db.ObjectId
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  documentType    String    // e.g., Aadhar, PAN, Passport
+  documentNumber  String    @unique
+  cloudinaryUrl   String    // Secure image delivery URL
+  cloudinaryId    String    // Needed to delete/replace assets in the cloud
+  
+  status          KycStatus @default(PENDING)
+  submittedAt     DateTime  @default(now())
+  verifiedAt      DateTime?
+  rejectionReason String?
+}
+
+model Account {
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  accountNumber String        @unique
+  userId        String        @db.ObjectId
+  user          User          @relation(fields: [userId], references: [id])
+  balance       Float         @default(0.0)
+  currency      String        @default("INR")
+  status        AccountStatus @default(ACTIVE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // A user can send AND receive transactions
+  sentTransactions     Transaction[] @relation("SenderAccount")
+  receivedTransactions Transaction[] @relation("ReceiverAccount")
+}
+
+model Transaction {
+  id                String            @id @default(auto()) @map("_id") @db.ObjectId
+  referenceId       String            @unique // Unique bank reference hash
+  amount            Float
+  type              TransactionType
+  status            TransactionStatus @default(PENDING)
+  
+  senderAccountId   String?           @db.ObjectId
+  senderAccount     Account?          @relation("SenderAccount", fields: [senderAccountId], references: [id])
+  
+  receiverAccountId String?           @db.ObjectId
+  receiverAccount   Account?          @relation("ReceiverAccount", fields: [receiverAccountId], references: [id])
+  
+  description       String?
+  createdAt         DateTime          @default(now())
+}
